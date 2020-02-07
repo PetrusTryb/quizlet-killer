@@ -38,7 +38,6 @@ async def join(code,token,sid,name):
 		await websocket.recv()
 		await websocket.send("5")
 		await websocket.send("42[\"player-join\",{\"username\":\""+name+"\",\"image\":\"https://p0.piqsels.com/preview/998/626/353/imagination-brain-key-head.jpg\"}]")
-		data=await websocket.recv()
 print("Enter PIN:")
 code=str(input())
 if(testCode(code)):
